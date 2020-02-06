@@ -1,0 +1,302 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ECS infra
+Metadata:
+  Author:
+    Name: Bertrand Martel
+Parameters:
+  PublicSubnetIDs:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: The subnets in which the load balancer will run
+  PrivateSubnetIDs:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Select private subnets in your selected VPC.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: The VPC in which the laod balancer will run
+  DesiredCapacity:
+    Type: Number
+    Default: '3'
+    Description: Number of instances to launch in your ECS cluster.
+  MaxSize:
+    Type: Number
+    Default: '3'
+    Description: Maximum number of instances that can be launched in your ECS cluster.
+  CertificateArn:
+    Type: String
+    Default: "arn:aws:acm:eu-west-3:296862614704:certificate/10086843-817b-4af3-a7cc-a7592b79373d"
+    Description: "default certificate"
+  InstanceType:
+    Description: EC2 instance type
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+    - t2.micro
+    - t2.small
+    - t2.medium
+    - t2.large
+    - m3.medium
+    - m3.large
+    - m3.xlarge
+    - m3.2xlarge
+    - m4.large
+    - m4.xlarge
+    - m4.2xlarge
+    - m4.4xlarge
+    - m4.10xlarge
+    - c4.large
+    - c4.xlarge
+    - c4.2xlarge
+    - c4.4xlarge
+    - c4.8xlarge
+    - c3.large
+    - c3.xlarge
+    - c3.2xlarge
+    - c3.4xlarge
+    - c3.8xlarge
+    - r3.large
+    - r3.xlarge
+    - r3.2xlarge
+    - r3.4xlarge
+    - r3.8xlarge
+    - i2.xlarge
+    - i2.2xlarge
+    - i2.4xlarge
+    - i2.8xlarge
+    ConstraintDescription: Please choose a valid instance type.
+Mappings:
+  #https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-optimized_AMI.html
+  AWSRegionECSAMI:
+    us-east-1:
+      ID: ami-00afc256a955c31b5
+    us-east-2:
+      ID: ami-01a7c6aed63b6014f
+    us-west-1:
+      ID: ami-01b3329a1f446d6aa
+    us-west-2:
+      ID: ami-0cbd7a68124b9cff9
+    eu-west-1:
+      ID: ami-027078d981e5d4010
+    eu-west-2:
+      ID: ami-0749bd3fac17dc2cc
+    eu-west-3:
+      ID: ami-069c1953e4db12d37
+    eu-central-1:
+      ID: ami-01933d3dbcb8f63e0
+    ap-northeast-1:
+      ID: ami-08798a629a97d8551
+    ap-southeast-1:
+      ID: ami-0310a9b646b817d26
+    ap-southeast-2:
+      ID: ami-0adc350d7c7a2259f
+    ca-central-1:
+      ID: ami-08decf7a4d56cff6e
+Resources:
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: "main-cluster"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-EcsCluster"
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SecurityGroup for our Elastic Application Load Balancer
+      VpcId: !Ref VpcId
+      Tags:
+      - Key: Name
+        Value: ALB Security Group
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '80'
+        ToPort: '80'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '443'
+        ToPort: '443'
+        CidrIp: 0.0.0.0/0
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties: 
+      LogGroupName:
+        Fn::Sub: ${AWS::StackName}-LogGroup
+      RetentionInDays: 14
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ec2.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+      - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}"
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+      - !Ref InstanceRole
+  AutoscalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier: !Ref PrivateSubnetIDs
+      LaunchConfigurationName: !Ref LaunchConfig
+      MinSize: '3'
+      MaxSize: !Ref MaxSize
+      DesiredCapacity: !Ref DesiredCapacity
+      Tags:
+      - Key: Name
+        Value: !Sub "${AWS::StackName}"
+        PropagateAtLaunch: "true"
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT15M
+    UpdatePolicy:
+      AutoScalingReplacingUpdate:
+        WillReplace: 'true'
+
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SecurityGroup for our Instances
+      VpcId: !Ref VpcId
+      Tags:
+      - Key: Name
+        Value: Instance Security Group
+  EcsSecurityGroupIngressDockerPortsBetweenHosts:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref 'InstanceSecurityGroup'
+      SourceSecurityGroupId: !Ref 'InstanceSecurityGroup'
+      IpProtocol: tcp
+      FromPort: '31000'
+      ToPort: '61000'
+  EcsSecurityGroupIngressALB:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref 'InstanceSecurityGroup'
+      SourceSecurityGroupId: !Ref 'ALBSecurityGroup'
+      IpProtocol: tcp
+      FromPort: '31000'
+      ToPort: '61000'
+  LaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId:
+        Fn::FindInMap:
+        - AWSRegionECSAMI
+        - !Ref AWS::Region
+        - ID
+      AssociatePublicIpAddress: false
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref InstanceProfile
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          yum update -y
+          yum install -y https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
+          systemctl enable amazon-ssm-agent
+          systemctl start amazon-ssm-agent
+          echo ECS_CLUSTER="${Cluster}" >> /etc/ecs/ecs.config
+          yum install -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-signal -e $? \
+                --stack ${AWS::StackName} \
+                --resource AutoscalingGroup \
+                --region ${AWS::Region}
+      SecurityGroups:
+      - !Ref InstanceSecurityGroup
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub "${AWS::StackName}-ALB"
+      Scheme: internet-facing
+      LoadBalancerAttributes:
+      - Key: idle_timeout.timeout_seconds
+        Value: '60'
+      Subnets: !Ref PublicSubnetIDs
+      SecurityGroups:
+      - !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-ALB"
+  ALBListener80:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    DependsOn:
+      - ALB
+    Properties:
+      DefaultActions:
+        - RedirectConfig:
+            Host: "#{host}"
+            Path: "/#{path}"
+            Port: 443
+            Protocol: "HTTPS"
+            Query: "#{query}"
+            StatusCode: HTTP_301
+          Type: redirect
+      LoadBalancerArn: !Ref ALB
+      Port: 80
+      Protocol: HTTP
+  ALBListener443:
+    Type: 'AWS::ElasticLoadBalancingV2::Listener'
+    Properties:
+      Certificates:
+      - CertificateArn: !Ref CertificateArn
+      DefaultActions:
+      - TargetGroupArn: !Ref DefaultTargetGroup
+        Type: forward
+      LoadBalancerArn: !Ref ALB
+      Port: 443
+      Protocol: HTTPS
+  DefaultTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    DependsOn: ALB
+    Properties:
+      Name: DefaultTargetGroup
+      HealthCheckIntervalSeconds: 10
+      HealthCheckPath: "/"
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      Port: 80
+      Protocol: HTTP
+      UnhealthyThresholdCount: 2
+      VpcId: !Ref VpcId
+Outputs:
+  Cluster:
+    Value: !Ref Cluster
+    Export:
+      Name: "EcsCluster"
+  ALBDNS:
+    Description: The DNS endpoint of Application Load Balancer
+    Value:
+      Fn::GetAtt:
+      - ALB
+      - DNSName
+    Export:
+      Name: "EcsAlbDns"
+  ALBCanonicalHostZoneId:
+    Description: CanonicalHostedZoneID of Application Load Balancer
+    Value:
+      Fn::GetAtt:
+      - ALB
+      - CanonicalHostedZoneID
+    Export:
+      Name: "EcsAlbCanonicalHostZoneId"
+  ALBARN:
+    Description: The ARN of ALB
+    Value: !Ref ALB
+    Export:
+      Name: "EcsAlbArn"
+  ALBListener443:
+    Description: ALB Listener
+    Value: !Ref ALBListener443
+    Export:
+      Name: "ALBListener443"

@@ -1,0 +1,116 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ECS service
+Metadata:
+  Author:
+    Name: Bertrand Martel
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: Select a VPC that allows instances to access the Internet.
+  DockerImageURL:
+    Type: String
+    Description: Url of the Docker Image to deploy and tag
+  DesiredCount:
+    Type: Number
+    Default: '3'
+    Description: Number of services
+  HostZone:
+    Type: String
+    Default: 'changeme.com'
+    Description: name of hostzone
+  Priority:
+    Type: Number
+    Default: 50000
+    Description: Priority in 443 listener Rule (1 to 50000)
+  Hostname:
+    Type: String
+    Default: 'test.changeme.com'
+    Description: Hostname of your webservice (to be passed to your image as environment variable)
+  LogRetention:
+    Type: Number
+    Default: 14
+    Description: Log retention
+Resources:
+  ShowIpTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: ShowIpTargetGroup
+      HealthCheckIntervalSeconds: 10
+      HealthCheckPath: "/"
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      Port: 80
+      Protocol: HTTP
+      UnhealthyThresholdCount: 2
+      VpcId: !Ref VpcId
+  ListenerRule:
+    Type: 'AWS::ElasticLoadBalancingV2::ListenerRule'
+    DependsOn: ShowIpTargetGroup
+    Properties:
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref ShowIpTargetGroup
+      Conditions:
+        - Field: host-header
+          HostHeaderConfig:
+            Values:
+            - !Ref Hostname
+      ListenerArn: !ImportValue ALBListener443
+      Priority: !Ref Priority
+  WebTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family:
+        Fn::Join:
+        - ''
+        - - !Ref AWS::StackName
+          - "-web-task"
+      ContainerDefinitions:
+      - Name: web-task
+        Image: !Ref DockerImageURL
+        Memory: '300'
+        Cpu: '256'
+        Environment:
+          - Name: HOSTNAME
+            Value: !Ref Hostname
+        Essential: true
+        PortMappings:
+        - ContainerPort: '3000'
+          Protocol: tcp
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-region:
+              Ref: AWS::Region
+            awslogs-group: !Ref LogGroup
+            awslogs-stream-prefix:
+              Ref: AWS::StackName
+  WebService:
+    Type: AWS::ECS::Service
+    DependsOn: ListenerRule
+    Properties:
+      Cluster: !ImportValue EcsCluster
+      DesiredCount: !Ref DesiredCount
+      LoadBalancers:
+      - ContainerName: web-task
+        ContainerPort: '3000'
+        TargetGroupArn: !Ref ShowIpTargetGroup
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 0
+      TaskDefinition: !Ref WebTaskDefinition
+  DnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      Name: !Ref Hostname
+      HostedZoneName: !Sub "${HostZone}."
+      Type: A
+      AliasTarget:
+        DNSName: !ImportValue EcsAlbDns
+        HostedZoneId: !ImportValue EcsAlbCanonicalHostZoneId
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties: 
+      LogGroupName: !Sub "${AWS::StackName}"
+      RetentionInDays: !Ref LogRetention

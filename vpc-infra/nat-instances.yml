@@ -1,0 +1,510 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'NAT instances infrastructure stack'
+Metadata:
+  Author:
+    Name: Bertrand Martel
+Parameters:
+  VpcCidr:
+    Description: Cidr block for VPC
+    Type: 'String'
+    Default: "172.16.0.0/20"
+  PublicSubnet1Cidr: 
+    Description: Cidr block for Public Subnet1 (AZ1)
+    Type: 'String'
+    Default: "172.16.0.0/24"
+  PublicSubnet2Cidr: 
+    Description: Cidr block for Public Subnet2 (AZ2)
+    Type: 'String'
+    Default: "172.16.1.0/24"
+  PublicSubnet3Cidr: 
+    Description: Cidr block for Public Subnet3 (AZ3)
+    Type: 'String'
+    Default: "172.16.2.0/24"
+  PrivateSubnet1Cidr: 
+    Description: Cidr block for Private Subnet1 (AZ1)
+    Type: 'String'
+    Default: "172.16.3.0/24"
+  PrivateSubnet2Cidr: 
+    Description: Cidr block for Private Subnet2 (AZ2)
+    Type: 'String'
+    Default: "172.16.4.0/24"
+  PrivateSubnet3Cidr: 
+    Description: Cidr block for Private Subnet3 (AZ3)
+    Type: 'String'
+    Default: "172.16.5.0/24"
+  NatInstanceType:
+    Description: NAT EC2 instance type
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+    - t2.micro
+    - t2.small
+    - t2.medium
+    - t2.large
+    - m3.medium
+    - m3.large
+    - m3.xlarge
+    - m3.2xlarge
+    - m4.large
+    - m4.xlarge
+    - m4.2xlarge
+    - m4.4xlarge
+    - m4.10xlarge
+    - c4.large
+    - c4.xlarge
+    - c4.2xlarge
+    - c4.4xlarge
+    - c4.8xlarge
+    - c3.large
+    - c3.xlarge
+    - c3.2xlarge
+    - c3.4xlarge
+    - c3.8xlarge
+    - r3.large
+    - r3.xlarge
+    - r3.2xlarge
+    - r3.4xlarge
+    - r3.8xlarge
+    - i2.xlarge
+    - i2.2xlarge
+    - i2.4xlarge
+    - i2.8xlarge
+Mappings:
+  AWSRegionNatAMI:
+    eu-west-3:
+      ID: ami-0050bb60cea70c5b3
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties: 
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: True
+      EnableDnsHostnames: True
+      InstanceTenancy: 'default'
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-VPC"
+###### Elastic IPs (one per AZ)#######
+  EIP1:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref NatInstanceAZ1
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-ExternalEIP1"
+  EIP2:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref NatInstanceAZ2
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-ExternalEIP2"
+  EIP3:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref NatInstanceAZ3
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-ExternalEIP3"
+
+###### Nat Instance (one per AZ) #######
+  NatInstanceAZ1:
+    Type: 'AWS::EC2::Instance'
+    DependsOn: AttachIGW
+    Properties:
+      ImageId:
+        Fn::FindInMap:
+        - AWSRegionNatAMI
+        - Ref: AWS::Region
+        - ID
+      InstanceType: !Ref NatInstanceType
+      IamInstanceProfile: !Ref InstanceProfile
+      SourceDestCheck: false
+      NetworkInterfaces:
+      - AssociatePublicIpAddress: false
+        DeviceIndex: 0
+        DeleteOnTermination: true
+        SubnetId: !Ref PublicSubnetAZ1
+        GroupSet:
+        - !Ref NATSGAZ1
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-NI1"
+  NatInstanceAZ2:
+    Type: 'AWS::EC2::Instance'
+    DependsOn: AttachIGW
+    Properties:
+      ImageId:
+        Fn::FindInMap:
+        - AWSRegionNatAMI
+        - Ref: AWS::Region
+        - ID
+      InstanceType: !Ref NatInstanceType
+      IamInstanceProfile: !Ref InstanceProfile
+      SourceDestCheck: false
+      NetworkInterfaces:
+      - AssociatePublicIpAddress: false
+        DeviceIndex: 0
+        DeleteOnTermination: true
+        SubnetId: !Ref PublicSubnetAZ2
+        GroupSet:
+        - !Ref NATSGAZ2
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-NI2"
+  NatInstanceAZ3:
+    Type: 'AWS::EC2::Instance'
+    DependsOn: AttachIGW
+    Properties:
+      ImageId:
+        Fn::FindInMap:
+        - AWSRegionNatAMI
+        - Ref: AWS::Region
+        - ID
+      InstanceType: !Ref NatInstanceType
+      IamInstanceProfile: !Ref InstanceProfile
+      SourceDestCheck: false
+      NetworkInterfaces:
+      - AssociatePublicIpAddress: false
+        DeviceIndex: 0
+        DeleteOnTermination: true
+        SubnetId: !Ref PublicSubnetAZ3
+        GroupSet:
+        - !Ref NATSGAZ3
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-NI3"
+  NATSGAZ1:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SecurityGroup for NAT instances
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+      - CidrIp: !Ref PrivateSubnet1Cidr
+        IpProtocol: "tcp"
+        FromPort: '0'
+        ToPort: '65535'
+      - CidrIp: !Ref PrivateSubnet1Cidr
+        IpProtocol: "icmp"
+        FromPort: '-1'
+        ToPort: '-1'
+      SecurityGroupEgress:
+      - CidrIp: '0.0.0.0/0'
+        IpProtocol: "icmp"
+        FromPort: '-1'
+        ToPort: '-1'
+      - CidrIp: '0.0.0.0/0'
+        IpProtocol: "tcp"
+        FromPort: '0'
+        ToPort: '65535'
+      Tags:
+      - Key: Name
+        Value: !Sub "${AWS::StackName}"
+  NATSGAZ2:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SecurityGroup for NAT instances
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+      - CidrIp: !Ref PrivateSubnet2Cidr
+        IpProtocol: "tcp"
+        FromPort: '0'
+        ToPort: '65535'
+      - CidrIp: !Ref PrivateSubnet2Cidr
+        IpProtocol: "icmp"
+        FromPort: '-1'
+        ToPort: '-1'
+      SecurityGroupEgress:
+      - CidrIp: '0.0.0.0/0'
+        IpProtocol: "icmp"
+        FromPort: '-1'
+        ToPort: '-1'
+      - CidrIp: '0.0.0.0/0'
+        IpProtocol: "tcp"
+        FromPort: '0'
+        ToPort: '65535'
+      Tags:
+      - Key: Name
+        Value: !Sub "${AWS::StackName}"
+  NATSGAZ3:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SecurityGroup for NAT instances
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+      - CidrIp: !Ref PrivateSubnet3Cidr
+        IpProtocol: "tcp"
+        FromPort: '0'
+        ToPort: '65535'
+      - CidrIp: !Ref PrivateSubnet3Cidr
+        IpProtocol: "icmp"
+        FromPort: '-1'
+        ToPort: '-1'
+      SecurityGroupEgress:
+      - CidrIp: '0.0.0.0/0'
+        IpProtocol: "icmp"
+        FromPort: '-1'
+        ToPort: '-1'
+      - CidrIp: '0.0.0.0/0'
+        IpProtocol: "tcp"
+        FromPort: '0'
+        ToPort: '65535'
+      Tags:
+      - Key: Name
+        Value: !Sub "${AWS::StackName}"
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+      - !Ref InstanceRole
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ec2.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}"
+###### Internet Gateway (IGW) - attached to VPC#######
+  IGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-IGW"
+  AttachIGW:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:
+        !Ref VPC
+      InternetGatewayId: 
+        !Ref IGW
+##### Public Route table of routing public subnet to IGW ######
+  PublicSubnetRoute: 
+    Type: AWS::EC2::Route
+    DependsOn: AttachIGW
+    Properties:
+        RouteTableId : !Ref PublicRouteTable
+        DestinationCidrBlock : '0.0.0.0/0'
+        GatewayId : !Ref IGW
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+###### PUBLIC SUBNET 1 (AZ1) - routed to IGW #######
+  PublicSubnetAZ1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        !Ref VPC
+      CidrBlock: !Ref PublicSubnet1Cidr
+      AvailabilityZone: !Select 
+        - 0
+        - Fn::GetAZs: !Ref 'AWS::Region'
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PublicSubnetAZ1"
+  SubnetRouteTableAssociationPubAZ1: 
+      Type : AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+          SubnetId : !Ref PublicSubnetAZ1 
+          RouteTableId : !Ref PublicRouteTable  
+
+###### PUBLIC SUBNET 2 (AZ2) - routed to IGW #######
+  PublicSubnetAZ2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        !Ref VPC
+      CidrBlock: !Ref PublicSubnet2Cidr
+      AvailabilityZone: !Select 
+        - 1
+        - Fn::GetAZs: !Ref 'AWS::Region'
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PublicSubnetAZ2"
+  SubnetRouteTableAssociationPubAZ2: 
+      Type : AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+          SubnetId : !Ref PublicSubnetAZ2 
+          RouteTableId : !Ref PublicRouteTable  
+
+###### PUBLIC SUBNET 3 (AZ3) - routed to IGW #######
+  PublicSubnetAZ3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        !Ref VPC
+      CidrBlock: !Ref PublicSubnet3Cidr
+      AvailabilityZone: !Select 
+        - 2
+        - Fn::GetAZs: !Ref 'AWS::Region'
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PublicSubnetAZ3"
+  SubnetRouteTableAssociationPubAZ3: 
+      Type : AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+          SubnetId : !Ref PublicSubnetAZ3
+          RouteTableId : !Ref PublicRouteTable
+
+###### PRIVATE SUBNET 1 (AZ1) - routed to Nat Instance #######
+  PrivateSubnetAZ1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet1Cidr
+      AvailabilityZone: !Select 
+                - 0
+                - Fn::GetAZs: !Ref 'AWS::Region'
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PrivateSubnetAZ1"
+  RouteTablePrivateSubnetAZ1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+  RoutePrivIGWAZ1: 
+    Type : AWS::EC2::Route
+    DependsOn: NatInstanceAZ1
+    Properties:
+        RouteTableId : !Ref RouteTablePrivateSubnetAZ1
+        DestinationCidrBlock : '0.0.0.0/0'
+        InstanceId : !Ref NatInstanceAZ1
+  SubnetRouteTableAssociationPrivAZ1: 
+      Type : AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+          SubnetId : !Ref PrivateSubnetAZ1 
+          RouteTableId : !Ref RouteTablePrivateSubnetAZ1
+
+###### PRIVATE SUBNET 2 (AZ2) - routed to Nat Instance #######
+  PrivateSubnetAZ2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        !Ref VPC
+      CidrBlock: !Ref PrivateSubnet2Cidr
+      AvailabilityZone: !Select 
+                - 1
+                - Fn::GetAZs: !Ref 'AWS::Region'
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PrivateSubnetAZ2"
+  RouteTablePrivateSubnetAZ2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+  RoutePrivIGWAZ2: 
+    Type : AWS::EC2::Route
+    DependsOn: NatInstanceAZ2
+    Properties:
+        RouteTableId : !Ref RouteTablePrivateSubnetAZ2
+        DestinationCidrBlock : '0.0.0.0/0'
+        InstanceId : !Ref NatInstanceAZ2
+  SubnetRouteTableAssociationPrivAZ2: 
+      Type : AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+          SubnetId : !Ref PrivateSubnetAZ2 
+          RouteTableId : !Ref RouteTablePrivateSubnetAZ2
+
+###### PRIVATE SUBNET 3 (AZ3) - routed to Nat Instance #######
+  PrivateSubnetAZ3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        !Ref VPC
+      CidrBlock: !Ref PrivateSubnet3Cidr
+      AvailabilityZone: !Select 
+                - 2
+                - Fn::GetAZs: !Ref 'AWS::Region'
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PrivateSubnetAZ3"
+  RouteTablePrivateSubnetAZ3:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+  RoutePrivIGWAZ3: 
+    Type : AWS::EC2::Route
+    DependsOn: NatInstanceAZ3
+    Properties:
+        RouteTableId : !Ref RouteTablePrivateSubnetAZ3
+        DestinationCidrBlock : '0.0.0.0/0'
+        InstanceId : !Ref NatInstanceAZ3
+  SubnetRouteTableAssociationPrivAZ3: 
+      Type : AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+          SubnetId : !Ref PrivateSubnetAZ3
+          RouteTableId : !Ref RouteTablePrivateSubnetAZ3
+Outputs:
+  VpcId:
+    Description: Id of the newly created VPC
+    Value: !Ref VPC
+    Export:
+      Name: !Sub "VPC-${AWS::StackName}"
+  PublicSubnetAZ1:
+    Description: Id of Subnet Pub AZ1
+    Value: !Ref PublicSubnetAZ1
+    Export:
+      Name: !Sub "PublicSubnetAZ1-${AWS::StackName}"
+  PublicSubnetAZ2:
+    Description: Id of Subnet Pub AZ2
+    Value: !Ref PublicSubnetAZ2
+    Export:
+      Name: !Sub "PublicSubnetAZ2-${AWS::StackName}"
+  PublicSubnetAZ3:
+    Description: Id of Subnet Pub AZ3
+    Value: !Ref PublicSubnetAZ3
+    Export:
+      Name: !Sub "PublicSubnetAZ3-${AWS::StackName}"
+  PrivateSubnetAZ1:
+    Description: Id of Subnet Priv AZ1
+    Value: !Ref PrivateSubnetAZ1
+    Export:
+      Name: !Sub "PrivateSubnetAZ1-${AWS::StackName}"
+  PrivateSubnetAZ2:
+    Description: Id of Subnet Priv AZ2
+    Value: !Ref PrivateSubnetAZ2
+    Export:
+      Name: !Sub "PrivateSubnetAZ2-${AWS::StackName}"
+  PrivateSubnetAZ3:
+    Description: Id of Subnet Priv AZ3
+    Value: !Ref PrivateSubnetAZ3
+    Export:
+      Name: !Sub "PrivateSubnetAZ3-${AWS::StackName}"
+  EIP1Address:
+    Value: !Ref EIP1
+    Export:
+      Name: !Sub "EIP1Address-${AWS::StackName}"
+  EIP1AllocationId:
+    Value: !GetAtt EIP1.AllocationId
+    Export:
+      Name: !Sub "EIP1AllocationId-${AWS::StackName}"
+  EIP2Address:
+    Value: !Ref EIP2
+    Export:
+      Name: !Sub "EIP2Address-${AWS::StackName}"
+  EIP2AllocationId:
+    Value: !GetAtt EIP2.AllocationId
+    Export:
+      Name: !Sub "EIP2AllocationId-${AWS::StackName}"
+  EIP3Address:
+    Value: !Ref EIP3
+    Export:
+      Name: !Sub "EIP3Address-${AWS::StackName}"
+  EIP3AllocationId:
+    Value: !GetAtt EIP3.AllocationId
+    Export:
+      Name: !Sub "EIP3AllocationId-${AWS::StackName}"

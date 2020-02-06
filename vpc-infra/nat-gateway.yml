@@ -1,0 +1,324 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'NAT gateway infrastructure stack'
+Metadata:
+  Author:
+    Name: Bertrand Martel
+Parameters:
+  VpcCidr:
+    Description: Cidr block for VPC
+    Type: 'String'
+    Default: "172.16.0.0/20"
+  PublicSubnet1Cidr: 
+    Description: Cidr block for Public Subnet1 (AZ1)
+    Type: 'String'
+    Default: "172.16.0.0/24"
+  PublicSubnet2Cidr: 
+    Description: Cidr block for Public Subnet2 (AZ2)
+    Type: 'String'
+    Default: "172.16.1.0/24"
+  PublicSubnet3Cidr: 
+    Description: Cidr block for Public Subnet3 (AZ3)
+    Type: 'String'
+    Default: "172.16.2.0/24"
+  PrivateSubnet1Cidr: 
+    Description: Cidr block for Private Subnet1 (AZ1)
+    Type: 'String'
+    Default: "172.16.3.0/24"
+  PrivateSubnet2Cidr: 
+    Description: Cidr block for Private Subnet2 (AZ2)
+    Type: 'String'
+    Default: "172.16.4.0/24"
+  PrivateSubnet3Cidr: 
+    Description: Cidr block for Private Subnet3 (AZ3)
+    Type: 'String'
+    Default: "172.16.5.0/24"
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties: 
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: True
+      EnableDnsHostnames: True
+      InstanceTenancy: 'default'
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-VPC"
+###### Elastic IPs (one per AZ)#######
+  EIP1:
+    Type: AWS::EC2::EIP
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-ExternalEIP1"
+  EIP2:
+    Type: AWS::EC2::EIP
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-ExternalEIP2"
+  EIP3:
+    Type: AWS::EC2::EIP
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-ExternalEIP3"
+
+###### Nat Gateway (one per AZ) #######
+  NatGatewayAZ1:
+    Type: 'AWS::EC2::NatGateway'
+    Properties:
+      AllocationId: !GetAtt 'EIP1.AllocationId'
+      SubnetId: !Ref PublicSubnetAZ1
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-NGW1"
+  NatGatewayAZ2:
+    Type: 'AWS::EC2::NatGateway'
+    Properties:
+      AllocationId: !GetAtt 'EIP2.AllocationId'
+      SubnetId: !Ref PublicSubnetAZ2
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-NGW2"
+  NatGatewayAZ3:
+    Type: 'AWS::EC2::NatGateway'
+    Properties:
+      AllocationId: !GetAtt 'EIP3.AllocationId'
+      SubnetId: !Ref PublicSubnetAZ3
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-NGW3"
+
+###### Internet Gateway (IGW) - attached to VPC#######
+  IGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-IGW"
+  AttachIGW:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:
+        !Ref VPC
+      InternetGatewayId: 
+        !Ref IGW
+##### Public Route table of routing public subnet to IGW ######
+  PublicSubnetRoute: 
+    Type: AWS::EC2::Route
+    DependsOn: AttachIGW
+    Properties:
+        RouteTableId : !Ref PublicRouteTable
+        DestinationCidrBlock : '0.0.0.0/0'
+        GatewayId : !Ref IGW
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+###### PUBLIC SUBNET 1 (AZ1) - routed to IGW #######
+  PublicSubnetAZ1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        !Ref VPC
+      CidrBlock: !Ref PublicSubnet1Cidr
+      AvailabilityZone: !Select 
+        - 0
+        - Fn::GetAZs: !Ref 'AWS::Region'
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PublicSubnetAZ1"
+  SubnetRouteTableAssociationPubAZ1: 
+      Type : AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+          SubnetId : !Ref PublicSubnetAZ1 
+          RouteTableId : !Ref PublicRouteTable  
+
+###### PUBLIC SUBNET 2 (AZ2) - routed to IGW #######
+  PublicSubnetAZ2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        !Ref VPC
+      CidrBlock: !Ref PublicSubnet2Cidr
+      AvailabilityZone: !Select 
+        - 1
+        - Fn::GetAZs: !Ref 'AWS::Region'
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PublicSubnetAZ2"
+  SubnetRouteTableAssociationPubAZ2: 
+      Type : AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+          SubnetId : !Ref PublicSubnetAZ2 
+          RouteTableId : !Ref PublicRouteTable  
+
+###### PUBLIC SUBNET 3 (AZ3) - routed to IGW #######
+  PublicSubnetAZ3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        !Ref VPC
+      CidrBlock: !Ref PublicSubnet3Cidr
+      AvailabilityZone: !Select 
+        - 2
+        - Fn::GetAZs: !Ref 'AWS::Region'
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PublicSubnetAZ3"
+  SubnetRouteTableAssociationPubAZ3: 
+      Type : AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+          SubnetId : !Ref PublicSubnetAZ3
+          RouteTableId : !Ref PublicRouteTable
+
+###### PRIVATE SUBNET 1 (AZ1) - routed to Nat Gateway #######
+  PrivateSubnetAZ1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet1Cidr
+      AvailabilityZone: !Select 
+                - 0
+                - Fn::GetAZs: !Ref 'AWS::Region'
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PrivateSubnetAZ1"
+  RouteTablePrivateSubnetAZ1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+  RoutePrivIGWAZ1: 
+    Type : AWS::EC2::Route
+    DependsOn: NatGatewayAZ1
+    Properties:
+        RouteTableId : !Ref RouteTablePrivateSubnetAZ1
+        DestinationCidrBlock : '0.0.0.0/0'
+        NatGatewayId : !Ref NatGatewayAZ1
+  SubnetRouteTableAssociationPrivAZ1: 
+      Type : AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+          SubnetId : !Ref PrivateSubnetAZ1 
+          RouteTableId : !Ref RouteTablePrivateSubnetAZ1
+
+###### PRIVATE SUBNET 2 (AZ2) - routed to Nat Gateway #######
+  PrivateSubnetAZ2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        !Ref VPC
+      CidrBlock: !Ref PrivateSubnet2Cidr
+      AvailabilityZone: !Select 
+                - 1
+                - Fn::GetAZs: !Ref 'AWS::Region'
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PrivateSubnetAZ2"
+  RouteTablePrivateSubnetAZ2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+  RoutePrivIGWAZ2: 
+    Type : AWS::EC2::Route
+    DependsOn: NatGatewayAZ2
+    Properties:
+        RouteTableId : !Ref RouteTablePrivateSubnetAZ2
+        DestinationCidrBlock : '0.0.0.0/0'
+        NatGatewayId : !Ref NatGatewayAZ2
+  SubnetRouteTableAssociationPrivAZ2: 
+      Type : AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+          SubnetId : !Ref PrivateSubnetAZ2 
+          RouteTableId : !Ref RouteTablePrivateSubnetAZ2
+
+###### PRIVATE SUBNET 3 (AZ3) - routed to Nat Gateway #######
+  PrivateSubnetAZ3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        !Ref VPC
+      CidrBlock: !Ref PrivateSubnet3Cidr
+      AvailabilityZone: !Select 
+                - 2
+                - Fn::GetAZs: !Ref 'AWS::Region'
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PrivateSubnetAZ3"
+  RouteTablePrivateSubnetAZ3:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+  RoutePrivIGWAZ3: 
+    Type : AWS::EC2::Route
+    DependsOn: NatGatewayAZ3
+    Properties:
+        RouteTableId : !Ref RouteTablePrivateSubnetAZ3
+        DestinationCidrBlock : '0.0.0.0/0'
+        NatGatewayId : !Ref NatGatewayAZ3
+  SubnetRouteTableAssociationPrivAZ3: 
+      Type : AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+          SubnetId : !Ref PrivateSubnetAZ3
+          RouteTableId : !Ref RouteTablePrivateSubnetAZ3
+Outputs:
+  VpcId:
+    Description: Id of the newly created VPC
+    Value: !Ref VPC
+    Export:
+      Name: !Sub "VPC-${AWS::StackName}"
+  PublicSubnetAZ1:
+    Description: Id of Subnet Pub AZ1
+    Value: !Ref PublicSubnetAZ1
+    Export:
+      Name: !Sub "PublicSubnetAZ1-${AWS::StackName}"
+  PublicSubnetAZ2:
+    Description: Id of Subnet Pub AZ2
+    Value: !Ref PublicSubnetAZ2
+    Export:
+      Name: !Sub "PublicSubnetAZ2-${AWS::StackName}"
+  PublicSubnetAZ3:
+    Description: Id of Subnet Pub AZ3
+    Value: !Ref PublicSubnetAZ3
+    Export:
+      Name: !Sub "PublicSubnetAZ3-${AWS::StackName}"
+  PrivateSubnetAZ1:
+    Description: Id of Subnet Priv AZ1
+    Value: !Ref PrivateSubnetAZ1
+    Export:
+      Name: !Sub "PrivateSubnetAZ1-${AWS::StackName}"
+  PrivateSubnetAZ2:
+    Description: Id of Subnet Priv AZ2
+    Value: !Ref PrivateSubnetAZ2
+    Export:
+      Name: !Sub "PrivateSubnetAZ2-${AWS::StackName}"
+  PrivateSubnetAZ3:
+    Description: Id of Subnet Priv AZ3
+    Value: !Ref PrivateSubnetAZ3
+    Export:
+      Name: !Sub "PrivateSubnetAZ3-${AWS::StackName}"
+  EIP1Address:
+    Value: !Ref EIP1
+    Export:
+      Name: !Sub "EIP1Address-${AWS::StackName}"
+  EIP1AllocationId:
+    Value: !GetAtt EIP1.AllocationId
+    Export:
+      Name: !Sub "EIP1AllocationId-${AWS::StackName}"
+  EIP2Address:
+    Value: !Ref EIP2
+    Export:
+      Name: !Sub "EIP2Address-${AWS::StackName}"
+  EIP2AllocationId:
+    Value: !GetAtt EIP2.AllocationId
+    Export:
+      Name: !Sub "EIP2AllocationId-${AWS::StackName}"
+  EIP3Address:
+    Value: !Ref EIP3
+    Export:
+      Name: !Sub "EIP3Address-${AWS::StackName}"
+  EIP3AllocationId:
+    Value: !GetAtt EIP3.AllocationId
+    Export:
+      Name: !Sub "EIP3AllocationId-${AWS::StackName}"
