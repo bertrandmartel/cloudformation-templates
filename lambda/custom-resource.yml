@@ -1,0 +1,58 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description:  "Launch lambda at start/update/delete of the stack using Custom Resource"
+
+Parameters: 
+  S3Key: 
+    Default: "custom-resources.zip"
+    Description : "S3 key for lambda"
+    Type: "String"
+  S3Bucket: 
+    Default: "lambda-custom-resources"
+    Description : "S3 key for lambda"
+    Type: "String"
+
+Resources:
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "LambdaProvisioning-${AWS::StackName}"
+      Code: 
+        S3Key: !Ref S3Key
+        S3Bucket: !Ref S3Bucket
+      Description: This lambda launch at start / update / delete
+      Handler: custom
+      Runtime: go1.x
+      Timeout: 300
+      Role: !GetAtt LambdaRole.Arn
+      Tags:
+      - Key: Name
+        Value: !Sub "${AWS::StackName}"
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action: sts:AssumeRole
+      Policies:
+      - PolicyName: !Sub "Lambda-${AWS::StackName}"
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Sid: LambdaLogging
+            Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource:
+            - arn:aws:logs:*:*:*
+  CustomResourceTest:
+    Type: AWS::CloudFormation::CustomResource
+    DependsOn: LambdaFunction
+    Version: "1.0"
+    Properties:
+      ServiceToken: !GetAtt LambdaFunction.Arn

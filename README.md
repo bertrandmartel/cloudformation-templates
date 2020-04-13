@@ -2,6 +2,13 @@
 
 A collection of cloudformation templates
 
+## Table of Content
+
+* [VPC Infra](#vpc-infra)
+* [ECS Infra](#ecs-infra)
+* [ElastiCache](#elasticache)
+* [Launch Lambda at creation](#lambda-launch-at-creation)
+
 ## VPC Infra
 
 ### 1 - Nat Instances
@@ -88,3 +95,20 @@ Some notorious parameters :
 Security Group of Elasticache Cluster accept incoming tcp request from '0.0.0.0/0' on port 6379
 
 The subnet parameter should use private subnets
+
+## Lambda launch at creation
+
+In order to launch a lambda at stack creation, you need to use a [Custom Resource](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/template-custom-resources.html). You need to create a lambda expecting to receive Custom Resource Request Input. Using go, it looks like [that](https://github.com/aws/aws-lambda-go/blob/master/cfn/event.go#L17-L26).
+
+Also you need to create a physical resource ID when you receive the Create event. And then re-use the physical resource ID you will receive in the UPDATE or DELETE subsequent events. Failing to doing so would result in your stack getting stuck in `DELETE_IN_PROGRESS` state.
+
+A minimal example in golang and the cloudformation stack :
+
+* [lambda/main.go](https://github.com/bertrandmartel/cloudformation-templates/blob/master/lambda/main.go)
+* [lambda/custom-resource.yml](https://github.com/bertrandmartel/cloudformation-templates/blob/master/lambda/custom-resource.yml)
+
+Some useful resources about custom resources / lambda : 
+
+* https://stories.schubergphilis.com/cloudformation-coding-with-custom-resources-9249c45bf37
+* https://stackoverflow.com/a/41388529/2614364
+
